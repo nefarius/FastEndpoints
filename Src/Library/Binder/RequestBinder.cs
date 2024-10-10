@@ -324,11 +324,7 @@ public class RequestBinder<TRequest> : IRequestBinder<TRequest> where TRequest :
             return;
 
         foreach (var kvp in routeValues)
-        {
-            var val = kvp.Value?.ToString();
-            if (val?.StartsWith('{') is false)
-                Bind(req, new(kvp.Key, val), failures);
-        }
+            Bind(req, new(kvp.Key, kvp.Value?.ToString()), failures);
     }
 
     static void BindQueryParams(TRequest req, IQueryCollection query, List<ValidationFailure> failures, JsonSerializerContext? serializerCtx)
@@ -467,7 +463,7 @@ public class RequestBinder<TRequest> : IRequestBinder<TRequest> where TRequest :
         }
 
         static bool IsNullablePropAndInputIsEmptyString(KeyValuePair<string, StringValues> kvp, PrimaryPropCacheEntry prop)
-            => kvp.Value[0]?.Length == 0 && Nullable.GetUnderlyingType(prop.PropType) != null;
+            => kvp.Value[0]?.Length == 0 && Nullable.GetUnderlyingType(prop.PropType) is not null;
     }
 
     static bool AddFromClaimPropCacheEntry(FromClaimAttribute att, PropertyInfo propInfo, Action<object, object?> compiledSetter)
@@ -542,6 +538,13 @@ public class RequestBinder<TRequest> : IRequestBinder<TRequest> where TRequest :
 
     static bool SetFromFormPropCache(PropertyInfo propInfo, Action<object, object?> compiledSetter)
     {
+        if (Types.IEnumerable.IsAssignableFrom(propInfo.PropertyType) || !propInfo.PropertyType.IsClass)
+        {
+            throw new InvalidOperationException(
+                $"The property [{_tRequest.FullName}.{propInfo.Name}] has to be a complex type in order to " +
+                "work with the [FromForm] attribute.");
+        }
+
         _fromFormProp = new()
         {
             PropType = propInfo.PropertyType,
@@ -581,9 +584,6 @@ public class RequestBinder<TRequest> : IRequestBinder<TRequest> where TRequest :
                    throw new NotSupportedException(
                        "Only JSON requests (with an \"application/json\" content-type header) can be deserialized to a DTO type without " +
                        $"a constructor! Offending type: [{_tRequest.FullName}]");
-
-        // if (ctor is null)
-        //     return Expression.Lambda<Func<TRequest>>(Expression.New(_tRequest)).Compile();
 
         var args = ctor.GetParameters();
         var argExpressions = new List<Expression>(args.Length);
